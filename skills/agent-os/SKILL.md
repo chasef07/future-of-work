@@ -3,7 +3,7 @@ name: agent-os
 description: "Operate the Agent OS ledger, worker contract, approvals, proof, briefings, and approved knowledge."
 ---
 
-# Agent OS
+# Future of Work / Agent OS
 
 Use this skill when capturing work, routing events, dispatching workers,
 recording proof, generating briefs, or proposing durable knowledge.

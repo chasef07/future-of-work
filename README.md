@@ -1,6 +1,6 @@
-# Agent OS
+# Future of Work
 
-Agent OS is a small operating kernel for personal and business work.
+Future of Work is a small agent operating kernel for personal and business work.
 
 It is not a dashboard, task app, or chat transcript. It gives agents a durable
 place to record what happened, what needs doing, what is running, what needs
@@ -9,6 +9,17 @@ approval, and what proof exists.
 The public repo is the reusable kernel. Your live database, account names,
 thread IDs, raw emails, customer context, and personal/business knowledge should
 stay in a private overlay.
+
+## Four Loop Primitives
+
+The system is built from four loops:
+
+1. Input: notice what happened.
+2. Execute: do safe bounded work.
+3. Approve: ask the human only for judgment or risk.
+4. Learn: turn repeated steering into durable rules and playbooks.
+
+Everything else is implementation detail.
 
 ## Mental Model
 

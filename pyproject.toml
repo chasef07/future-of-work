@@ -1,7 +1,7 @@
 [project]
 name = "agent-os"
 version = "0.1.0"
-description = "A small agent operating kernel for events, tasks, runs, proof, briefs, and knowledge."
+description = "Future of Work: a small agent operating kernel for events, tasks, runs, proof, briefs, and knowledge."
 requires-python = ">=3.9"
 
 [project.scripts]
