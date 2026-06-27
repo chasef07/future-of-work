@@ -1,0 +1,18 @@
+[project]
+name = "agent-os"
+version = "0.1.0"
+description = "A small agent operating kernel for events, tasks, runs, proof, briefs, and knowledge."
+requires-python = ">=3.9"
+
+[project.scripts]
+agent-os = "agent_os.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+agent_os = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

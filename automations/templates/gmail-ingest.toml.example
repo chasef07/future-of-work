@@ -1,0 +1,31 @@
+version = 1
+id = "agent-os-gmail-ingest"
+kind = "cron"
+name = "Agent OS Gmail ingest"
+prompt = """
+Agent OS Gmail ingest heartbeat.
+
+Work in `<AGENT_OS_CHECKOUT>`.
+
+Goal: read Gmail through a safe read-only wrapper, write thread-level events to
+the Agent OS ledger, route new events into conservative tasks, and produce a
+terse brief.
+
+Commands:
+1. `AGENT_OS_GMAIL_WRAPPER=<READONLY_GMAIL_WRAPPER> AGENT_OS_GMAIL_ACCOUNT=<ACCOUNT_EMAIL> python3 -m agent_os.cli --db ./agent_os.sqlite ingest gmail newer_than:1d --max 10`
+2. `python3 -m agent_os.cli --db ./agent_os.sqlite route --limit 25`
+3. `python3 -m agent_os.cli --db ./agent_os.sqlite brief`
+
+Hard boundaries:
+- Do not send email.
+- Do not archive, mark read, delete, unsubscribe, download attachments, or mutate Gmail.
+- Do not create or steer workers from this automation.
+- Do not print raw full email bodies, raw headers, attachments, tokens, secrets, or private customer context.
+- Report only meaningful changes: new events/tasks, blockers, or brief deltas.
+"""
+status = "PAUSED"
+rrule = "FREQ=MINUTELY;INTERVAL=15"
+model = "<MODEL>"
+reasoning_effort = "medium"
+execution_environment = "local"
+cwds = ["<AGENT_OS_CHECKOUT>"]

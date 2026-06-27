@@ -1,0 +1,11 @@
+agent_os.sqlite
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/

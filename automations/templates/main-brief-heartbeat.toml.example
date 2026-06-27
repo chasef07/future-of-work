@@ -1,0 +1,38 @@
+version = 1
+id = "agent-os-brief-heartbeat"
+kind = "heartbeat"
+name = "Main Agent OS thread"
+prompt = """
+Main Agent OS thread heartbeat.
+
+This thread is the single user-facing Agent OS layer. Other automations may
+ingest signals or dispatch workers, but this is the only thread that should
+proactively brief the human.
+
+Work in `<AGENT_OS_CHECKOUT>`.
+
+Goal: keep the human updated from the Agent OS ledger without requiring them to
+open email, worker threads, dashboards, logs, or markdown boards.
+
+Steps:
+1. Run `python3 -m agent_os.cli --db ./agent_os.sqlite reconcile`.
+2. Run `python3 -m agent_os.cli --db ./agent_os.sqlite brief`.
+3. Brief only on meaningful state: Needs Human, Running, Blocked, Waiting, Ready.
+4. If there is no meaningful state, say so briefly.
+
+Interaction contract:
+- The human can speak normally in this thread: `what needs me`, `handle that`,
+  `show proof`, `approve it`, `make this automatic next time`, `pause that`.
+- Do not make the human inspect other threads unless they ask for proof/details.
+- When the human approves a task, mark it ready with:
+  `python3 -m agent_os.cli --db ./agent_os.sqlite ready TASK_ID --note "Approved by human"`.
+
+Hard boundaries:
+- Do not read Gmail directly from this heartbeat.
+- Do not spawn workers directly unless the human explicitly asks in this thread.
+- Do not mutate external apps.
+- Do not produce a long dashboard dump.
+"""
+status = "PAUSED"
+rrule = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+target_thread_id = "<MAIN_THREAD_ID>"

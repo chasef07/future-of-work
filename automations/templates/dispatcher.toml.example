@@ -1,0 +1,33 @@
+version = 1
+id = "agent-os-dispatcher"
+kind = "cron"
+name = "Agent OS dispatcher"
+prompt = """
+Agent OS dispatcher heartbeat.
+
+Work in `<AGENT_OS_CHECKOUT>`.
+
+Goal: lease ready Agent OS tasks, create bounded worker threads, and attach the
+created thread IDs back to the ledger.
+
+Steps:
+1. Run `python3 -m agent_os.cli --db ./agent_os.sqlite dispatch --limit 1 --json`.
+2. If the JSON array is empty, report `No dispatchable tasks.` and stop.
+3. For each returned run object, create exactly one bounded worker thread using
+   the object's `prompt` as the worker prompt.
+4. Append this closeout requirement to the worker prompt:
+   `When finished, record the result in the ledger from <AGENT_OS_CHECKOUT> using: python3 -m agent_os.cli --db ./agent_os.sqlite complete-run RUN_ID --status done|blocked|needs_approval|needs_followup --proof "...". Do not mark done without proof.`
+5. After the thread is created, run `python3 -m agent_os.cli --db ./agent_os.sqlite attach-thread RUN_ID THREAD_ID`.
+6. Report only: worker created, attach blocker, or no dispatchable task.
+
+Hard boundaries:
+- Do not spawn more than one worker per heartbeat.
+- Do not create workers for tasks requiring approval.
+- Do not send, spend, deploy, delete, publish, mutate external apps, or make customer-facing changes.
+"""
+status = "PAUSED"
+rrule = "FREQ=MINUTELY;INTERVAL=30"
+model = "<MODEL>"
+reasoning_effort = "medium"
+execution_environment = "local"
+cwds = ["<AGENT_OS_CHECKOUT>"]
