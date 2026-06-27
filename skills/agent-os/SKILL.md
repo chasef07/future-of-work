@@ -37,6 +37,7 @@ Run commands from the Agent OS checkout.
 
 ```bash
 python3 -m agent_os.cli --db ./agent_os.sqlite ready TASK_ID
+python3 -m agent_os.cli --db ./agent_os.sqlite defer TASK_ID --until 2026-06-29 --note "Start next week"
 python3 -m agent_os.cli --db ./agent_os.sqlite close TASK_ID --proof "Human said no action is needed."
 python3 -m agent_os.cli --db ./agent_os.sqlite remember "Subject" "Durable fact, rule, preference, or playbook." --kind rule
 python3 -m agent_os.cli --db ./agent_os.sqlite dispatch --limit 1 --json
@@ -45,6 +46,8 @@ python3 -m agent_os.cli --db ./agent_os.sqlite brief
 
 Use `close` when the human gives a no-action, done, or archive decision directly.
 Do not create a fake run for human triage.
+
+Use `defer` when work belongs in the queue but should not dispatch yet.
 
 Use `remember` when the human gives durable business or personal operating context.
 

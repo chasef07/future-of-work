@@ -106,6 +106,39 @@ class CliTest(unittest.TestCase):
             self.assertEqual(knowledge, ("rule", "Noisy notifications", "active"))
             conn.close()
 
+    def test_defer_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(db, "capture", "Start product brainstorming next week")
+            run_cli(db, "route")
+            tasks = run_cli(db, "tasks")
+            task_id = tasks.stdout.split()[0]
+
+            deferred = run_cli(
+                db,
+                "defer",
+                task_id,
+                "--until",
+                "2026-06-29",
+                "--note",
+                "Start next week",
+            )
+            self.assertIn(f"deferred {task_id} until 2026-06-29", deferred.stdout)
+
+            brief = run_cli(db, "brief")
+            self.assertIn("Waiting:", brief.stdout)
+            self.assertIn("Start product brainstorming next week", brief.stdout)
+
+            conn = sqlite3.connect(db)
+            row = conn.execute("SELECT state, due_at FROM tasks LIMIT 1").fetchone()
+            self.assertEqual(row, ("waiting", "2026-06-29"))
+            event = conn.execute(
+                "SELECT event_type, note FROM task_events WHERE event_type = 'task.deferred'"
+            ).fetchone()
+            self.assertEqual(event, ("task.deferred", "Start next week"))
+            conn.close()
+
     def test_ingest_gmail_and_attach_thread(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "agent_os.sqlite"

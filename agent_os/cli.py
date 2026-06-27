@@ -44,6 +44,16 @@ def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _validate_isoish(value: str) -> str:
+    try:
+        _parse_iso(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "expected an ISO date or datetime, such as 2026-06-29"
+        ) from exc
+    return value
+
+
 def command_init(args: argparse.Namespace) -> int:
     conn = _conn(args)
     conn.close()
@@ -358,6 +368,41 @@ def command_close_task(args: argparse.Namespace) -> int:
     conn.commit()
     conn.close()
     print(f"closed {args.task_id} as {args.state}")
+    return 0
+
+
+def command_defer_task(args: argparse.Namespace) -> int:
+    conn = _conn(args)
+    row = conn.execute(
+        "SELECT id, state FROM tasks WHERE id = ?",
+        (args.task_id,),
+    ).fetchone()
+    if not row:
+        print(f"unknown task: {args.task_id}", file=sys.stderr)
+        return 2
+
+    now = utc_now()
+    note = args.note or f"Deferred until {args.until}"
+    conn.execute(
+        """
+        UPDATE tasks
+        SET due_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (args.until, now, args.task_id),
+    )
+    set_task_state(conn, args.task_id, "waiting", note)
+    add_task_event(
+        conn,
+        args.task_id,
+        "task.deferred",
+        str(row["state"]),
+        "waiting",
+        note,
+    )
+    conn.commit()
+    conn.close()
+    print(f"deferred {args.task_id} until {args.until}")
     return 0
 
 
@@ -778,6 +823,12 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--title", default="Task proof")
     close.add_argument("--uri")
     close.set_defaults(func=command_close_task)
+
+    defer = sub.add_parser("defer", help="Move a task to waiting until a date")
+    defer.add_argument("task_id")
+    defer.add_argument("--until", required=True, type=_validate_isoish)
+    defer.add_argument("--note", default="")
+    defer.set_defaults(func=command_defer_task)
 
     dispatch = sub.add_parser("dispatch", help="Prepare worker handoffs for ready tasks")
     dispatch.add_argument("--limit", type=int, default=5)

@@ -50,6 +50,7 @@ python -m agent_os.cli ingest gmail newer_than:1d --max 10
 python -m agent_os.cli route
 python -m agent_os.cli tasks
 python -m agent_os.cli ready TASK_ID
+python -m agent_os.cli defer TASK_ID --until 2026-06-29 --note "Start next week"
 python -m agent_os.cli close TASK_ID --proof "Human said no action is needed."
 python -m agent_os.cli remember "Vendor digests" "Monitor only unless there is production impact." --kind rule
 python -m agent_os.cli dispatch --dry-run
@@ -117,6 +118,12 @@ Human triage can close a task without creating a worker run:
 
 ```bash
 python -m agent_os.cli close TASK_ID --proof "Human said no action is needed."
+```
+
+Future work can be deferred without dispatching a worker immediately:
+
+```bash
+python -m agent_os.cli defer TASK_ID --until 2026-06-29 --note "Start next week"
 ```
 
 Record durable facts, rules, preferences, and playbooks with:
