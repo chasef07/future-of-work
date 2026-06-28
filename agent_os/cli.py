@@ -40,6 +40,24 @@ def _truncate(value: str, limit: int = 88) -> str:
     return clean[: limit - 1].rstrip() + "..."
 
 
+def _clean_untrusted(value: str) -> str:
+    lines = []
+    for line in value.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("<<<EXTERNAL_UNTRUSTED_CONTENT"):
+            continue
+        if stripped.startswith("<<<END_EXTERNAL_UNTRUSTED_CONTENT"):
+            continue
+        if stripped == "Source: google_api":
+            continue
+        if stripped == "---":
+            continue
+        lines.append(stripped)
+    return " ".join(lines).strip()
+
+
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
@@ -744,6 +762,70 @@ def command_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def _email_action(state: Optional[str]) -> str:
+    if not state:
+        return "not routed yet"
+    return {
+        "needs_approval": "needs review",
+        "ready": "approved for worker",
+        "running": "worker running",
+        "blocked": "blocked",
+        "waiting": "waiting",
+        "done": "closed/no action or done",
+        "archived": "archived/no action",
+    }.get(state, state)
+
+
+def command_email_brief(args: argparse.Namespace) -> int:
+    conn = _conn(args)
+    ws_id = workspace_id(conn, args.workspace)
+    rows = conn.execute(
+        """
+        SELECT
+          e.id AS event_id,
+          e.summary,
+          e.payload_json,
+          e.occurred_at,
+          t.id AS task_id,
+          t.state AS task_state,
+          t.updated_at AS task_updated_at
+        FROM events e
+        LEFT JOIN tasks t ON t.source_event_id = e.id
+        WHERE e.workspace_id = ?
+          AND e.source = 'gmail'
+          AND (? IS NULL OR e.occurred_at >= ?)
+        ORDER BY e.occurred_at DESC, e.created_at DESC
+        LIMIT ?
+        """,
+        (ws_id, args.since, args.since, args.limit),
+    ).fetchall()
+    conn.close()
+
+    lines = ["Email Visibility:"]
+    if not rows:
+        lines.append("- None.")
+        print("\n".join(lines))
+        return 0
+
+    for row in rows:
+        try:
+            payload = json.loads(str(row["payload_json"] or "{}"))
+        except json.JSONDecodeError:
+            payload = {}
+        sender = _clean_untrusted(str(payload.get("sender") or "unknown sender"))
+        subject = _clean_untrusted(str(payload.get("subject") or row["summary"]))
+        snippet = _clean_untrusted(str(payload.get("snippet") or ""))
+        action = _email_action(row["task_state"])
+        task = f" ({row['task_id']})" if row["task_id"] else ""
+        detail = f"{sender}: {subject}"
+        if snippet:
+            detail = f"{detail} - {_truncate(snippet, 120)}"
+        lines.append(f"- {detail} -> {action}{task}")
+
+    print("\n".join(lines))
+    return 0
+
+
 def command_remember(args: argparse.Namespace) -> int:
     conn = _conn(args)
     ws_id = workspace_id(conn, args.workspace)
@@ -868,6 +950,12 @@ def build_parser() -> argparse.ArgumentParser:
     brief.add_argument("--workspace", default="default")
     brief.add_argument("--limit", type=int, default=10)
     brief.set_defaults(func=command_brief)
+
+    email_brief = sub.add_parser("email-brief", help="Show recent Gmail visibility and task outcomes")
+    email_brief.add_argument("--workspace", default="default")
+    email_brief.add_argument("--limit", type=int, default=20)
+    email_brief.add_argument("--since")
+    email_brief.set_defaults(func=command_email_brief)
 
     remember = sub.add_parser("remember", help="Record durable Agent OS knowledge")
     remember.add_argument("subject")

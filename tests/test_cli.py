@@ -186,6 +186,42 @@ class CliTest(unittest.TestCase):
             self.assertEqual(row, ("thread_codex_123", "running"))
             conn.close()
 
+    def test_email_brief_shows_closed_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+            gmail_json = Path(tmp) / "gmail.json"
+            gmail_json.write_text(
+                json.dumps(
+                    [
+                        {
+                            "threadId": "thread_noise",
+                            "messageId": "msg_noise",
+                            "from": "Vendor <vendor@example.com>",
+                            "subject": "Product update",
+                            "snippet": "Here is a routine product announcement.",
+                            "date": "2026-06-28T09:00:00Z",
+                        }
+                    ]
+                )
+            )
+
+            run_cli(db, "ingest", "gmail", "--json-file", str(gmail_json))
+            run_cli(db, "route")
+            task_id = run_cli(db, "tasks").stdout.split()[0]
+            run_cli(
+                db,
+                "close",
+                task_id,
+                "--proof",
+                "Routine vendor update. No action needed.",
+            )
+
+            email_brief = run_cli(db, "email-brief")
+            self.assertIn("Email Visibility:", email_brief.stdout)
+            self.assertIn("Vendor <vendor@example.com>: Product update", email_brief.stdout)
+            self.assertIn("closed/no action or done", email_brief.stdout)
+            self.assertIn(task_id, email_brief.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

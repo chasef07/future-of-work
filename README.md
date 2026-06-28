@@ -56,6 +56,7 @@ python -m agent_os.cli remember "Vendor digests" "Monitor only unless there is p
 python -m agent_os.cli dispatch --dry-run
 python -m agent_os.cli dispatch --json
 python -m agent_os.cli brief
+python -m agent_os.cli email-brief --limit 20
 ```
 
 The default database path is `./agent_os.sqlite`. Set `AGENT_OS_DB` or pass
@@ -74,6 +75,7 @@ live Gmail search path.
 ## Human Surfaces
 
 - Brief: what changed, what needs judgment, what is blocked, what is done.
+- Email visibility: what came in, including noise that was closed.
 - Approval: one decision at a time with proposed action and risk.
 - Proof: receipts for completed work.
 
@@ -130,6 +132,12 @@ Record durable facts, rules, preferences, and playbooks with:
 
 ```bash
 python -m agent_os.cli remember "Subject" "What should be remembered." --kind rule
+```
+
+Show recent Gmail arrivals and what happened to each one:
+
+```bash
+python -m agent_os.cli email-brief --limit 20
 ```
 
 ## Automations
