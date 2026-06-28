@@ -1,4 +1,5 @@
 agent_os.sqlite
+agent_os_kanban.html
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

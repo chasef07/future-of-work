@@ -21,10 +21,58 @@ from .db import (
     utc_now,
     workspace_id,
 )
+from .kanban import write_kanban_html
 
 
 GMAIL_WRAPPER = os.environ.get("AGENT_OS_GMAIL_WRAPPER", "gog")
 GMAIL_ACCOUNT = os.environ.get("AGENT_OS_GMAIL_ACCOUNT", "auto")
+
+GMAIL_BOUNDARY = (
+    "Inspect and draft only. Do not send, archive, mark read, delete, "
+    "unsubscribe, download attachments, or mutate Gmail."
+)
+
+USER_EMAIL_COMMAND_BOUNDARY = (
+    "Explicit user-originated email command. Treat as Chase input, inspect only "
+    "the needed context, create bounded worker work when useful, and do not "
+    "send, spend, deploy, delete, publish, or mutate external systems unless "
+    "the task boundary explicitly allows it."
+)
+
+OUTBOUND_SENT_ARTIFACT_BOUNDARY = (
+    "Cold outbound sent-email artifact. This is visibility/proof from the "
+    "campaign, not a new task for Chase or a worker. Track replies, bounces, "
+    "suppressions, and follow-ups through the outbound loop."
+)
+
+OUTBOUND_BOUNDARY = (
+    "Send-approved cold outbound lane. Work in /Users/chasefagen/Projects/outbound_ops. "
+    "Run python3 scripts/outbound.py policy-check immediately before any send. "
+    "Send only if send_ready is true and require_human_approval is false. Respect "
+    "suppression, replies, bounces, unsubscribe, not-interested, angry/legal stops, "
+    "and record Gmail messageId/threadId plus queue advancement proof."
+)
+
+LINKEDIN_BOUNDARY = (
+    "Approval-packet only. Do not approve, publish, reply to comments, upload media, "
+    "or mutate LinkedIn without Chase approval."
+)
+
+ABITA_AUTONOMOUS_BOUNDARY = (
+    "Autonomous Abita transcript lane. Use sanitized evidence only; do not treat "
+    "reviewStatus, reviewResult, or needsReview annotations as required routing "
+    "evidence or blockers. Inspect the selected calls needed to prove the owner "
+    "boundary, implement the smallest deterministic repo fix or loop improvement "
+    "when justified, run focused checks, and open a PR targeting main if reasonable. "
+    "No raw transcripts, PHI, direct main push, merge, release, destructive git, or "
+    "production mutation."
+)
+
+SOURCE_REVIEW_BOUNDARY = (
+    "Review and classify only. Do not send, spend, deploy, delete, publish, mutate "
+    "external apps, or make customer-facing changes until policy clearance or Chase "
+    "approval makes the task ready."
+)
 
 
 def _conn(args: argparse.Namespace) -> sqlite3.Connection:
@@ -56,6 +104,52 @@ def _clean_untrusted(value: str) -> str:
             continue
         lines.append(stripped)
     return " ".join(lines).strip()
+
+
+def _is_chase_email(source: str, summary: str) -> bool:
+    text = summary.lower()
+    return source == "gmail" and (
+        text.startswith("email from chase@acuityhealth.io")
+        or text.startswith("email from chasefagen@gmail.com")
+    )
+
+
+def _is_user_email_command(source: str, summary: str) -> bool:
+    text = summary.lower()
+    return _is_chase_email(source, summary) and (
+        "agent os:" in text or "agent-os:" in text
+    )
+
+
+def _is_outbound_sent_artifact(source: str, summary: str) -> bool:
+    text = summary.lower()
+    return _is_chase_email(source, summary) and "question about calls at" in text
+
+
+def _route_policy(source: str, summary: str) -> tuple[str, int, str]:
+    """Return task state, approval flag, and boundary for a source event."""
+    text = summary.lower()
+    if source == "gmail":
+        if _is_outbound_sent_artifact(source, summary):
+            return "done", 0, OUTBOUND_SENT_ARTIFACT_BOUNDARY
+        if _is_user_email_command(source, summary):
+            return "ready", 0, USER_EMAIL_COMMAND_BOUNDARY
+        return "needs_approval", 1, GMAIL_BOUNDARY
+
+    if source == "growth":
+        if "linkedin" in text:
+            return "needs_approval", 1, LINKEDIN_BOUNDARY
+        if "outbound" in text or "cold outbound" in text:
+            return "ready", 0, OUTBOUND_BOUNDARY
+        return "needs_approval", 1, SOURCE_REVIEW_BOUNDARY
+
+    if source == "abita-transcripts":
+        return "ready", 0, ABITA_AUTONOMOUS_BOUNDARY
+
+    if source == "manual":
+        return "ready", 0, DEFAULT_BOUNDARY
+
+    return "needs_approval", 1, SOURCE_REVIEW_BOUNDARY
 
 
 def _parse_iso(value: str) -> datetime:
@@ -263,19 +357,7 @@ def command_route(args: argparse.Namespace) -> int:
         event_id = str(row["id"])
         summary = str(row["summary"])
         source = str(row["source"])
-        boundary = DEFAULT_BOUNDARY
-        state = "ready"
-        approval_required = 0
-        if source == "gmail":
-            boundary = (
-                "Inspect and draft only. Do not send, archive, mark read, delete, "
-                "unsubscribe, download attachments, or mutate Gmail."
-            )
-            state = "needs_approval"
-            approval_required = 1
-        elif source != "manual":
-            state = "needs_approval"
-            approval_required = 1
+        state, approval_required, boundary = _route_policy(source, summary)
         task_id = make_id("task")
         now = utc_now()
         conn.execute(
@@ -307,6 +389,21 @@ def command_route(args: argparse.Namespace) -> int:
             state,
             f"Created from event {event_id}",
         )
+        if state == "done":
+            conn.execute(
+                """
+                INSERT INTO artifacts
+                  (id, task_id, run_id, artifact_type, title, uri, body, created_at)
+                VALUES (?, ?, NULL, 'proof', ?, NULL, ?, ?)
+                """,
+                (
+                    make_id("art"),
+                    task_id,
+                    "Auto-routed proof",
+                    f"Closed automatically from event {event_id}: {boundary}",
+                    now,
+                ),
+            )
         conn.execute(
             "UPDATE events SET processed_at = ? WHERE id = ?",
             (now, event_id),
@@ -322,19 +419,34 @@ def command_route(args: argparse.Namespace) -> int:
 def command_mark_ready(args: argparse.Namespace) -> int:
     conn = _conn(args)
     row = conn.execute(
-        "SELECT id, state FROM tasks WHERE id = ?",
+        """
+        SELECT t.id, t.state, e.source, e.summary
+        FROM tasks t
+        LEFT JOIN events e ON e.id = t.source_event_id
+        WHERE t.id = ?
+        """,
         (args.task_id,),
     ).fetchone()
     if not row:
         print(f"unknown task: {args.task_id}", file=sys.stderr)
         return 2
+    boundary = None
+    if row["source"] == "abita-transcripts":
+        boundary = ABITA_AUTONOMOUS_BOUNDARY
+    elif _is_user_email_command(row["source"] or "", row["summary"] or ""):
+        boundary = USER_EMAIL_COMMAND_BOUNDARY
+    boundary_sql = ", boundary = ?" if boundary else ""
+    params = [utc_now()]
+    if boundary:
+        params.append(boundary)
+    params.append(args.task_id)
     conn.execute(
-        """
+        f"""
         UPDATE tasks
-        SET approval_required = 0, updated_at = ?
+        SET approval_required = 0, updated_at = ?{boundary_sql}
         WHERE id = ?
         """,
-        (utc_now(), args.task_id),
+        tuple(params),
     )
     set_task_state(conn, args.task_id, "ready", args.note)
     conn.commit()
@@ -462,10 +574,39 @@ def command_tasks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _approval_rules(task: sqlite3.Row) -> str:
+    if int(task["approval_required"] or 0):
+        return (
+            "This task still needs approval. Do not send, spend, deploy, delete, "
+            "publish, mutate external apps, or make customer-facing changes."
+        )
+
+    boundary = str(task["boundary"]).lower()
+    if "cold outbound" in boundary:
+        return (
+            "Cold outbound sends are policy-approved only after policy-check returns "
+            "send_ready true and require_human_approval false. Stop on suppression, "
+            "reply, bounce, unsubscribe, not-interested, angry/legal, weak evidence, "
+            "or policy failure."
+        )
+    if "abita" in boundary:
+        return (
+            "Repo investigation and PR creation are approved for Abita transcript "
+            "findings. Do not block on reviewStatus, reviewResult, or needsReview "
+            "annotations. Do not expose raw transcripts/PHI, push main, merge, "
+            "release, or mutate production."
+        )
+    return (
+        "This task is ready. Execute only within the boundary. Do not spend money, "
+        "merge, release, delete, or take irreversible action unless explicitly allowed."
+    )
+
+
 def _worker_prompt(task: sqlite3.Row, run_id: str, source_summary: str = "") -> str:
     context = "Created from Agent OS task ledger."
     if source_summary:
         context = f"Created from Agent OS task ledger. Source event: {source_summary}"
+    approval_rules = _approval_rules(task)
     return dedent(
         f"""
         Task ID: {task['id']}
@@ -474,7 +615,7 @@ def _worker_prompt(task: sqlite3.Row, run_id: str, source_summary: str = "") -> 
         Context: {context}
         Boundary: {task['boundary']}
         Allowed tools: Use local tools and relevant skills needed for this bounded task.
-        Approval rules: Do not send, spend, deploy, delete, publish, or make customer-facing changes without explicit approval.
+        Approval rules: {approval_rules}
         Expected proof: exact files/links/commands/output/draft/screenshot/conclusion that proves the result.
         Stale time: 4 hours unless a different deadline is provided.
         Return format:
@@ -683,7 +824,7 @@ def command_reconcile(args: argparse.Namespace) -> int:
     now_dt = datetime.now(timezone.utc)
     rows = conn.execute(
         """
-        SELECT r.id, r.task_id, r.lease_until
+        SELECT r.id, r.task_id, r.status, r.thread_id, r.started_at, r.lease_until
         FROM runs r
         WHERE r.status IN ('prepared', 'running')
           AND r.lease_until IS NOT NULL
@@ -691,8 +832,42 @@ def command_reconcile(args: argparse.Namespace) -> int:
     ).fetchall()
 
     stale = 0
+    released = 0
     for row in rows:
         lease_until = _parse_iso(str(row["lease_until"]))
+        started_at = _parse_iso(str(row["started_at"]))
+        prepared_without_thread = row["status"] == "prepared" and not row["thread_id"]
+        orphan_prepared = prepared_without_thread and (
+            started_at <= now_dt - timedelta(minutes=15) or lease_until <= now_dt
+        )
+        if orphan_prepared:
+            now = utc_now()
+            conn.execute(
+                """
+                UPDATE runs
+                SET status = 'cancelled', completed_at = ?, result_json = ?
+                WHERE id = ?
+                """,
+                (
+                    now,
+                    json.dumps(
+                        {
+                            "status": "cancelled",
+                            "reason": "prepared run expired before worker thread attached",
+                        },
+                        sort_keys=True,
+                    ),
+                    row["id"],
+                ),
+            )
+            set_task_state(
+                conn,
+                row["task_id"],
+                "ready",
+                f"Released orphan prepared run {row['id']} with no worker thread",
+            )
+            released += 1
+            continue
         if lease_until > now_dt:
             continue
         conn.execute(
@@ -712,7 +887,7 @@ def command_reconcile(args: argparse.Namespace) -> int:
 
     conn.commit()
     conn.close()
-    print(f"reconciled runs, marked {stale} stale")
+    print(f"reconciled runs, marked {stale} stale, released {released} orphan prepared")
     return 0
 
 
@@ -823,6 +998,20 @@ def command_email_brief(args: argparse.Namespace) -> int:
         lines.append(f"- {detail} -> {action}{task}")
 
     print("\n".join(lines))
+    return 0
+
+
+def command_kanban(args: argparse.Namespace) -> int:
+    conn = _conn(args)
+    output = write_kanban_html(
+        conn,
+        args.output,
+        workspace=args.workspace,
+        limit=args.limit,
+        done_limit=args.done_limit,
+    )
+    conn.close()
+    print(f"wrote {output}")
     return 0
 
 
@@ -956,6 +1145,13 @@ def build_parser() -> argparse.ArgumentParser:
     email_brief.add_argument("--limit", type=int, default=20)
     email_brief.add_argument("--since")
     email_brief.set_defaults(func=command_email_brief)
+
+    kanban = sub.add_parser("kanban", help="Render a static HTML kanban from the ledger")
+    kanban.add_argument("--workspace", default="default")
+    kanban.add_argument("--output", default="agent_os_kanban.html")
+    kanban.add_argument("--limit", type=int, default=20)
+    kanban.add_argument("--done-limit", type=int, default=8)
+    kanban.set_defaults(func=command_kanban)
 
     remember = sub.add_parser("remember", help="Record durable Agent OS knowledge")
     remember.add_argument("subject")

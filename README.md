@@ -57,6 +57,7 @@ python -m agent_os.cli dispatch --dry-run
 python -m agent_os.cli dispatch --json
 python -m agent_os.cli brief
 python -m agent_os.cli email-brief --limit 20
+python -m agent_os.cli kanban --output agent_os_kanban.html
 ```
 
 The default database path is `./agent_os.sqlite`. Set `AGENT_OS_DB` or pass
@@ -108,9 +109,24 @@ python -m agent_os.cli complete-run RUN_ID --status done --proof "..."
 Allowed statuses are `done`, `blocked`, `needs_approval`, and
 `needs_followup`.
 
-External sources such as Gmail, growth-loop signals, and transcript-review
-signals default to `needs_approval`. Mark a task ready only after a human
-approves or policy clearly allows the work:
+External sources route by policy:
+
+- Gmail defaults to `needs_approval`; workers may inspect/draft only until
+  Chase approves a response.
+- Gmail from Chase's own accounts is not automatically user input. Self-sent
+  cold outbound campaign emails such as `question about calls at ...` close as
+  campaign artifacts; explicit `Agent OS:` self-emails may route to `ready`.
+- Cold outbound may route to `ready` when the outbound policy gate owns sends.
+  The worker must still run policy-check immediately before sending, respect
+  suppression/reply/bounce stops, record provider receipts, and write proof.
+- LinkedIn stays approval-gated; approval packets are safe, publishing is not.
+- Abita transcript findings route to `ready` repo workers. They should use
+  sanitized evidence, ignore `reviewStatus`, `reviewResult`, and `needsReview`
+  as routing blockers, make the smallest deterministic repo fix or loop
+  improvement, run checks, and open a PR targeting `main` when reasonable.
+
+Mark a task ready manually only after a human approves or policy clearly allows
+the work:
 
 ```bash
 python -m agent_os.cli ready TASK_ID --note "Approved by human"
@@ -138,6 +154,12 @@ Show recent Gmail arrivals and what happened to each one:
 
 ```bash
 python -m agent_os.cli email-brief --limit 20
+```
+
+Render a local black-and-white kanban snapshot of the ledger:
+
+```bash
+python -m agent_os.cli kanban --output agent_os_kanban.html
 ```
 
 ## Automations

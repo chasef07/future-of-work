@@ -186,6 +186,181 @@ class CliTest(unittest.TestCase):
             self.assertEqual(row, ("thread_codex_123", "running"))
             conn.close()
 
+    def test_reconcile_releases_orphan_prepared_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(db, "capture", "Investigate a bounded issue")
+            run_cli(db, "route")
+            prepared = run_cli(
+                db,
+                "dispatch",
+                "--json",
+                "--lease-hours",
+                "-1",
+            )
+            run_id = json.loads(prepared.stdout)[0]["run_id"]
+
+            reconciled = run_cli(db, "reconcile")
+            self.assertIn("released 1 orphan prepared", reconciled.stdout)
+
+            conn = sqlite3.connect(db)
+            run = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+            task = conn.execute("SELECT state FROM tasks LIMIT 1").fetchone()
+            self.assertEqual(run[0], "cancelled")
+            self.assertEqual(task[0], "ready")
+            conn.close()
+
+    def test_growth_outbound_routes_ready_with_policy_send_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "growth",
+                "Outbound ledger shows 35 companies due and policy-check is send-ready.",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[0:2], ("ready", 0))
+            self.assertIn("Send-approved cold outbound lane", task[2])
+            conn.close()
+
+            prepared = run_cli(db, "dispatch", "--json")
+            runs = json.loads(prepared.stdout)
+            self.assertEqual(len(runs), 1)
+            self.assertIn("Cold outbound sends are policy-approved", runs[0]["prompt"])
+            self.assertIn("policy-check", runs[0]["prompt"])
+
+    def test_growth_linkedin_stays_approval_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "growth",
+                "LinkedIn auth is healthy with 4 drafts and 0 approved posts.",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[0:2], ("needs_approval", 1))
+            self.assertIn("Approval-packet only", task[2])
+            conn.close()
+
+            prepared = run_cli(db, "dispatch", "--json")
+            self.assertEqual(json.loads(prepared.stdout), [])
+
+    def test_user_email_command_routes_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "gmail",
+                "Email from chase@acuityhealth.io; subject: Agent OS: check tomorrow's calendar",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[0:2], ("ready", 0))
+            self.assertIn("Explicit user-originated email command", task[2])
+            conn.close()
+
+    def test_outbound_sent_email_artifact_routes_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "gmail",
+                "Email from chase@acuityhealth.io; subject: question about calls at Southwest Eye Institute",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT id, state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[1:3], ("done", 0))
+            self.assertIn("Cold outbound sent-email artifact", task[3])
+            artifact = conn.execute(
+                "SELECT title, body FROM artifacts WHERE task_id = ?",
+                (task[0],),
+            ).fetchone()
+            self.assertEqual(artifact[0], "Auto-routed proof")
+            self.assertIn("Cold outbound sent-email artifact", artifact[1])
+            conn.close()
+
+            prepared = run_cli(db, "dispatch", "--json")
+            self.assertEqual(json.loads(prepared.stdout), [])
+
+    def test_abita_autonomous_routes_ready_with_pr_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "abita-transcripts",
+                "Autonomous: reschedule cluster shows hard failures with middleware_error.",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[0:2], ("ready", 0))
+            self.assertIn("Autonomous Abita transcript lane", task[2])
+            conn.close()
+
+            prepared = run_cli(db, "dispatch", "--json")
+            runs = json.loads(prepared.stdout)
+            self.assertEqual(len(runs), 1)
+            self.assertIn("PR creation", runs[0]["prompt"])
+            self.assertIn("smallest deterministic repo fix", runs[0]["prompt"])
+
+    def test_abita_data_gap_routes_ready_not_human(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "abita-transcripts",
+                "Data gap: recovered reschedule calls need loop verification; do not rely on reviewStatus/reviewResult annotations.",
+            )
+            run_cli(db, "route")
+
+            conn = sqlite3.connect(db)
+            task = conn.execute(
+                "SELECT state, approval_required, boundary FROM tasks"
+            ).fetchone()
+            self.assertEqual(task[0:2], ("ready", 0))
+            self.assertIn("do not treat reviewStatus", task[2])
+            conn.close()
+
     def test_email_brief_shows_closed_noise(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "agent_os.sqlite"
@@ -221,6 +396,32 @@ class CliTest(unittest.TestCase):
             self.assertIn("Vendor <vendor@example.com>: Product update", email_brief.stdout)
             self.assertIn("closed/no action or done", email_brief.stdout)
             self.assertIn(task_id, email_brief.stdout)
+
+    def test_kanban_renders_static_html(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "agent_os.sqlite"
+            output = Path(tmp) / "ledger.html"
+
+            run_cli(db, "capture", "Ship a tiny dashboard")
+            run_cli(
+                db,
+                "capture",
+                "--source",
+                "growth",
+                "LinkedIn auth is healthy with 4 drafts and 0 approved posts.",
+            )
+            run_cli(db, "route")
+
+            rendered = run_cli(db, "kanban", "--output", str(output))
+            self.assertIn(f"wrote {output}", rendered.stdout)
+
+            html = output.read_text()
+            self.assertIn("<title>Agent OS Ledger</title>", html)
+            self.assertIn("Needs Human", html)
+            self.assertIn("Ready", html)
+            self.assertIn("Ship a tiny dashboard", html)
+            self.assertIn("LinkedIn auth is healthy", html)
+            self.assertIn("Filter ledger", html)
 
 
 if __name__ == "__main__":
