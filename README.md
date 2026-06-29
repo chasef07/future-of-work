@@ -119,7 +119,10 @@ External sources route by policy:
 - Cold outbound may route to `ready` when the outbound policy gate owns sends.
   The worker must still run policy-check immediately before sending, respect
   suppression/reply/bounce stops, record provider receipts, and write proof.
-- LinkedIn stays approval-gated; approval packets are safe, publishing is not.
+- Acuity Health LinkedIn company-page posts are autonomous under Chase's
+  standing policy: one safe, website/campaign-grounded post every three days.
+  Comments, replies, DMs, paid promotion, customer naming, media uploads,
+  unusual claims, and non-Acuity pages remain approval-gated.
 - Abita transcript findings route to `ready` repo workers. They should use
   sanitized evidence, ignore `reviewStatus`, `reviewResult`, and `needsReview`
   as routing blockers, make the smallest deterministic repo fix or loop

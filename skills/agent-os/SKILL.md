@@ -30,6 +30,10 @@ The Agent OS has four loops:
 - External source tasks such as Gmail, growth-loop signals, and transcript-review
   signals default to `needs_approval`; mark ready only after a human approves or
   policy clearly allows dispatch.
+- Acuity Health LinkedIn company-page posts are policy-cleared for autonomous
+  publishing once every three days when grounded in acuityhealth.io and campaign
+  facts. Comments, replies, DMs, paid promotion, customer naming, media uploads,
+  unusual claims, or non-Acuity pages still require explicit approval.
 
 ## Local Commands
 

@@ -238,7 +238,7 @@ class CliTest(unittest.TestCase):
             self.assertIn("Cold outbound sends are policy-approved", runs[0]["prompt"])
             self.assertIn("policy-check", runs[0]["prompt"])
 
-    def test_growth_linkedin_stays_approval_gated(self) -> None:
+    def test_growth_linkedin_routes_done_under_standing_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "agent_os.sqlite"
 
@@ -255,8 +255,8 @@ class CliTest(unittest.TestCase):
             task = conn.execute(
                 "SELECT state, approval_required, boundary FROM tasks"
             ).fetchone()
-            self.assertEqual(task[0:2], ("needs_approval", 1))
-            self.assertIn("Approval-packet only", task[2])
+            self.assertEqual(task[0:2], ("done", 0))
+            self.assertIn("Autonomous Acuity Health company-page", task[2])
             conn.close()
 
             prepared = run_cli(db, "dispatch", "--json")
@@ -417,7 +417,7 @@ class CliTest(unittest.TestCase):
 
             html = output.read_text()
             self.assertIn("<title>Agent OS Ledger</title>", html)
-            self.assertIn("Needs Human", html)
+            self.assertIn("Done", html)
             self.assertIn("Ready", html)
             self.assertIn("Ship a tiny dashboard", html)
             self.assertIn("LinkedIn auth is healthy", html)

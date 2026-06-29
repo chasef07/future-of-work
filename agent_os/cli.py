@@ -54,8 +54,10 @@ OUTBOUND_BOUNDARY = (
 )
 
 LINKEDIN_BOUNDARY = (
-    "Approval-packet only. Do not approve, publish, reply to comments, upload media, "
-    "or mutate LinkedIn without Chase approval."
+    "Autonomous Acuity Health company-page publishing lane. One safe, "
+    "website/campaign-grounded post may publish every three days through the "
+    "LinkedIn automation. Comments, replies, DMs, paid promotion, customer naming, "
+    "media uploads, unusual claims, or non-Acuity pages still require Chase approval."
 )
 
 ABITA_AUTONOMOUS_BOUNDARY = (
@@ -138,10 +140,13 @@ def _route_policy(source: str, summary: str) -> tuple[str, int, str]:
 
     if source == "growth":
         if "linkedin" in text:
-            return "needs_approval", 1, LINKEDIN_BOUNDARY
+            return "done", 0, LINKEDIN_BOUNDARY
         if "outbound" in text or "cold outbound" in text:
             return "ready", 0, OUTBOUND_BOUNDARY
         return "needs_approval", 1, SOURCE_REVIEW_BOUNDARY
+
+    if source == "linkedin":
+        return "done", 0, LINKEDIN_BOUNDARY
 
     if source == "abita-transcripts":
         return "ready", 0, ABITA_AUTONOMOUS_BOUNDARY
